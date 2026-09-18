@@ -37,3 +37,32 @@ jobs:
         run: |
           docker build -t ${{ secrets.DOCKER_USERNAME }}/github-action-demo:${{ github.run_number }} .
           docker push ${{ secrets.DOCKER_USERNAME }}/github-action-demo:${{ github.run_number }}
+
+      - name: Deploy to QA EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.QA_EC2_HOST }}
+          username: ${{ secrets.QA_EC2_USER }}
+          key: ${{ secrets.QA_EC2_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKER_USERNAME }}/github-action-demo:${{ github.run_number }}
+            docker stop github-action-demo || true
+            docker rm github-action-demo || true
+            docker run -d --name github-action-demo -p 8080:8080 ${{ secrets.DOCKER_USERNAME }}/github-action-demo:${{ github.run_number }}
+
+      - name: Health Check
+        run: |
+          sleep 10
+          curl -f http://${{ secrets.QA_EC2_HOST }}:8080/actuator/health
+
+      - name: Rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.QA_EC2_HOST }}
+          username: ${{ secrets.QA_EC2_USER }}
+          key: ${{ secrets.QA_EC2_SSH_KEY }}
+          script: |
+            docker stop github-action-demo || true
+            docker rm github-action-demo || true
+            docker run -d --name github-action-demo -p 8080:8080 ${{ secrets.DOCKER_USERNAME }}/github-action-demo:${{ github.run_number }}
